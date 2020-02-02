@@ -1,77 +1,72 @@
 #include <HX711.h>
-#include "HX711.h"
 #include <SoftwareSerial.h>
 
 
 
-
-
-
-/*
- Arduino pin 2 -> HX711 SCK
- Arduino pin 3 -> HX711 DT
- Arduino pin 5V -> HX711 VCC
- Arduino pin GND -> HX711 GND 
-*/
-
-
-HX711 scale(3, 2);
-
-
 /*Ağırlık Sensörü Değişkenleri*/
 float calibration_factor = 22900;     // Kendi Ağırlık sensörünüze göre ayarlamalısınız
-float units;                          // Ölçülen Ağırlık Sensörden gelir.
+float olcum;                          // Ölçülen Ağırlık, Sensörden gelir.
 double enb;                           //En büyük ölçülen ağırlık değeri
 int checkcount=0;                     // En büyük ölçülen ağırlıktan az ölçülen ölçümleri sayar
-boolean isTrapActive=false;
+boolean isTrapActive=false;           // Bluetooth ile değiştirilir alarm modu devredışıyken false olur.
 /*Wifi ESP8266 Modülü Değişkenleri*/
 int rxPin=4;
 int txPin=5;
-String agAdi = "<your_ssid>";                 //Ağımızın adını buraya yazıyoruz.    
-String agSifresi = "<your_pass>";
+String agAdi = "ErhanWifi";                 //Ağ adı    
+String agSifresi = "160201039Erhan";        //Ağ şifresi
 /*HC05 Modülü Değişkenleri*/
 int enablePin=8;
 /*ThingSpeak Değişkenleri*/
-String TsIp="184.106.153.149";
+String TsIp="184.106.153.149";         //Thingspeak ip adresi.
+String tsHttpApiKey="I7O44BYHWWV9CIA1";
 String oku;
-String appMode="Alarm";
+String appMode="Alarm";               //Alarm modunu belirtir.
+/*Hareket Sensörü değişkenleri*/
+int hareketPin = 12;               // Hareket Sensörü data pini
+int hareket = LOW;             //     Başlangıçta hareket yok
+bool hareketOlc=false;
 
 
+HX711 agirlik(3, 2);                    //HX711 i başlatır (Ağırlık Sensörleri).
+SoftwareSerial esp(rxPin, txPin);     //esp için seri port
+SoftwareSerial hc05(10,9);            //bluetooth için seri port
 
 
-SoftwareSerial esp(rxPin, txPin);
-SoftwareSerial hc05(10,9);
-
-
-void setup() {
-    
+void setup() {  
   Serial.begin(9600);
   hx711_kur();
   esp8266_kur();
+  pinMode(hareketPin, INPUT);
   hc05.begin(19200);
   hc05.listen();
-  
   
 }
 
 void loop() {
-  kalibre_et();
+  agirlik_olc();
   check();
+  if(hareketOlc == true && appMode=="Alarm" && isTrapActive)
+    hareket_kontrol();
+    if(hareket==HIGH){
+      esp.listen();
+      gonder(1);
+      hareket=LOW;
+      delay(1000);
+    }
   delay(100);
-  
   if(enb>5 && checkcount>20 && isTrapActive && appMode=="Alarm"){
     esp.listen();
-    gonder();
+    gonder(2);
   }
   if(appMode=="Tarti"){
-    hc05.print(units);
+    hc05.print(olcum);
     delay(1000);
   }
   oku="";
   bt_kontrol();
 }
 
-void gonder(){
+void gonder(int sensor){
    
       Serial.println(String(enb)+"  "+String(checkcount));
       again_wifi: 
@@ -79,15 +74,21 @@ void gonder(){
       if(esp.find("Error")){                                      //Bağlantı hatası kontrolü yapıyoruz.
           Serial.println("AT+CIPSTART Error");
       }
-      String veri = "GET https://api.thingspeak.com/update?api_key=<your_ts_api_key>";
-      veri += "&field2=";
-      veri += String(enb);                                       //Göndereceğimiz nem değişkeni
-      veri += "\r\n\r\n";
+      String veri = "GET https://api.thingspeak.com/update?api_key=AV3RY5B5Y8LA9XNW";
+      if(sensor==2){
+        veri += "&field2=";
+        veri += String(enb);                                       
+        veri += "\r\n\r\n";
+      }
+      else if(sensor==1){
+        veri += "&field1=1";
+        veri += "\r\n\r\n";
+      }
       esp.print("AT+CIPSEND=");                                   //ESP'ye göndereceğimiz veri uzunluğunu veriyoruz.
       esp.println(veri.length()+2);
       delay(500);
-      if(esp.find(">")){                                          //ESP8266 hazır olduğunda içindeki komutlar çalışıyor.
-          esp.print(veri);                                          //Veriyi gönderiyoruz.
+      if(esp.find(">")){                                         
+          esp.print(veri);                                        //Veriyi gönderiyoruz.
           Serial.println(veri);
           Serial.println("Veri gonderildi.");
           delay(100);
@@ -103,11 +104,11 @@ void gonder(){
       enb=0;
       checkcount=0;
       hc05.listen();
+
     
 }
 void esp8266_kur(){
   int timer=0;
-    
   again:                                   //ESP8266 ile seri haberleşmeyi başlatıyoruz.
   esp.begin(115200);    
   delay(100);                          
@@ -158,44 +159,25 @@ void esp8266_kur(){
 
 /*Ağırlık Sensörünün Kurulumu*/
 void hx711_kur(){
-  Serial.println("HX711 Kalibrasyonu");
-  Serial.println("Tüm Ağırlıkları Kaldırın");
-  Serial.println("Okumaya Başlandıktan sonra Ağırlığını bildiğiniz Bir Cisim Koyun");
-  Serial.println("Kalibrasyonu a veya + İle Arttırabilirisin");
-  Serial.println("Kalibrasyonu z veya - İle Azaltabilirsin");
-  scale.set_scale();
-  scale.tare();  //Reset the scale to 0
-
-  long zero_factor = scale.read_average(); //Get a baseline reading
-  Serial.print("Zero factor: "); //This can be used to remove the need to tare the scale. Useful in permanent scale projects.
+  Serial.println("HX711 Başlatılıyor.");
+  agirlik.set_scale();
+  agirlik.tare();  //Dara alma işlemi
+  long zero_factor = agirlik.read_average();
+  Serial.print("Zero factor: "); 
   Serial.println(zero_factor);
 }
 
- void kalibre_et(){
-  
-  scale.set_scale(calibration_factor); //Kalibrasyon faktörünün atanması
-  Serial.print("Reading: ");
-  units = scale.get_units(), 10;
-  if (units < 0)
+ void agirlik_olc(){
+  agirlik.set_scale(calibration_factor); //Kalibrasyon faktörünün atanması
+  Serial.print("Agirlik: ");
+  olcum = agirlik.get_units(), 10;      //Ağırlık değeri okunuyor
+  if (olcum < 0)
   {
-    units = 0.00;
+    olcum = 0.00;
   }
-
-  Serial.print(units);
+  Serial.print(olcum);
   Serial.print(" kg"); 
-  Serial.print(" calibration_factor: ");
-  Serial.print(calibration_factor);
   Serial.println();
-
-  if(Serial.available())
-  {
-    char temp = Serial.read();
-    if(temp == '+' || temp == 'a')
-      calibration_factor += 10;
-    else if(temp == '-' || temp == 'z')
-      calibration_factor -= 10;
-  }
-  
 }
 
 
@@ -233,19 +215,43 @@ void bt_kontrol(){
     enb=0;
     checkcount=0; 
   }
+  else if(oku=="hareketEtkin"){
+    hareketOlc=true;
+    oku="";
+    enb=0;
+    checkcount=0; 
+  }
+  else if(oku=="hareketDur"){
+    hareketOlc=false;
+    oku="";
+    enb=0;
+    checkcount=0; 
+  }
   hc05.flush();
   }
   
 }
+void hareket_kontrol(){
+ int okunan = digitalRead(hareketPin);
+  if (okunan == HIGH && hareket == LOW)
+  {            
+      Serial.println("Hareket Başladı");
+      hareket = HIGH;
+  } 
+  else if(okunan == LOW && hareket == HIGH)
+  {
+      Serial.println("Hareket Bitti");
+      hareket = LOW;
+  }
+}
 
-
+// check fonksiyonu agirligin thresholdu geçtiği an buluta gonderilmesini engeller en buyuk agirligi tutar.
 void check() {
-  
-  if(enb<units){
-    enb=units;
+  if(enb<olcum){
+    enb=olcum;
     checkcount=0;
   }
-  else if(enb>units){
+  else if(enb>olcum){
     checkcount+=1;
   }
 }

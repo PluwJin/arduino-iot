@@ -18,7 +18,7 @@ String agSifresi = "160201039Erhan";        //Ağ şifresi
 int enablePin=8;
 /*ThingSpeak Değişkenleri*/
 String TsIp="184.106.153.149";         //Thingspeak ip adresi.
-String tsHttpApiKey="I7O44BYHWWV9CIA1";
+String tsHttpApiKey="****************";
 String oku;
 String appMode="Alarm";               //Alarm modunu belirtir.
 /*Hareket Sensörü değişkenleri*/
@@ -74,7 +74,7 @@ void gonder(int sensor){
       if(esp.find("Error")){                                      //Bağlantı hatası kontrolü yapıyoruz.
           Serial.println("AT+CIPSTART Error");
       }
-      String veri = "GET https://api.thingspeak.com/update?api_key=AV3RY5B5Y8LA9XNW";
+      String veri = "GET https://api.thingspeak.com/update?api_key=***************";
       if(sensor==2){
         veri += "&field2=";
         veri += String(enb);                                       

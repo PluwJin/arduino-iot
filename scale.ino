@@ -13,7 +13,7 @@ boolean isTrapActive=false;           // Bluetooth ile değiştirilir alarm modu
 int rxPin=4;
 int txPin=5;
 String agAdi = "ErhanWifi";                 //Ağ adı    
-String agSifresi = "160201039Erhan";        //Ağ şifresi
+String agSifresi = "*************";        //Ağ şifresi
 /*HC05 Modülü Değişkenleri*/
 int enablePin=8;
 /*ThingSpeak Değişkenleri*/
